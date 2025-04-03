@@ -1,0 +1,11 @@
+{ "name": "hold-that-thought-lambda",
+"version": "1.0.0",
+"description": "",
+"type": "module", 
+"main": "index.js",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "axios": "^1.8.4",
+    "pdf-lib": "^1.17.1"
+  }
+}
