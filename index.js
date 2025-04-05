@@ -1,4 +1,4 @@
-import { updateS3Items, getS3PdfKeys, getPresignedUrlForPdf } from './utils/s3_update.js';
+import { updateS3Items, getS3PdfKeys, getPresignedUrlForPdf, getMarkdownContent, startec2 } from './utils/s3_update.js';
 //import { processFilesWithOCR } from './utils/gemini_api.js';
 import fs from 'fs';
 import path from 'path';
@@ -45,19 +45,19 @@ export const handler = async (event, context) => {
         if (task.type === "update") {
             console.log(`Processing 'update' task for name: ${task.name}`);
             // Validate task content if necessary
-            if (!task.name || typeof task.content === 'undefined') {
+            if (!task.title || typeof task.content === 'undefined') {
                  throw new Error("Missing 'name' or 'content' for update task.");
             }
 
             const items = [
                 // Use path.join or ensure consistent separators for S3 keys if needed
-                { key: `source${task.name}+page.svelte.md`, body: task.content }
+                { key: `urara${task.title}+page.svelte.md`, body: task.content }
             ];
             await updateS3Items(BUCKET_NAME, items);
             console.log("Update task completed successfully.");
             return { // Explicit success response
                 statusCode: 200,
-                body: JSON.stringify({ message: `Successfully updated ${task.name}` }),
+                body: JSON.stringify({ message: `Successfully updated ${task.title}` }),
             };
         }
 
@@ -101,8 +101,8 @@ export const handler = async (event, context) => {
 
             // Update the S3 bucket with the markdown content and original PDF
             const itemsToUpload = [
-                { key: `source/${title}/+page.svelte.md`, body: markdown },
-                { key: `source/${title}/document.pdf`, body: pdf } // Assuming pdf is Buffer or string
+                { key: `urara/${title}/+page.svelte.md`, body: markdown },
+                { key: `urara/${title}/document.pdf`, body: pdf } // Assuming pdf is Buffer or string
             ];
 
             await updateS3Items(BUCKET_NAME, itemsToUpload);
@@ -112,15 +112,60 @@ export const handler = async (event, context) => {
                 body: JSON.stringify({ message: `Successfully created entry for ${title}` }),
             };
         }
+        else if (task.type === "deploy"){
+            try{
+            await startec2();
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    message: `Successfully initiated start for instance`,
+                    
+                    // Include S3 operation results if applicable
+                }),
+            };
+    
+        } catch (error) {
+            console.error(`Error during Lambda execution:`, error);
+            // Differentiate between EC2 and S3 errors if necessary
+            if (error.name && error.message.includes('instance')) { // Basic check
+                 console.error(`Specifically failed starting instance ${INSTANCE_ID}:`, error);
+            }
+            // Return an error response
+            return {
+                statusCode: 500,
+                body: JSON.stringify({
+                    message: "Lambda execution failed",
+                    error: error.message,
+                    details: error,
+                }),
+            };
+        }
+    }
 
-        // --- Handle 'download' task ---
+        else if (task.type === "downloadMD") {
+            const titleForPrefix = task.title || '';
+             if (!titleForPrefix) {
+                 throw new Error("Missing 'title' for download task.");
+            }
+            const targetKey = `urara${titleForPrefix}+page.svelte.md`;
+            console.log(`Generating presigned URL for key: ${targetKey}`);
+
+            const downloadUrl = await getMarkdownContent(BUCKET_NAME, targetKey);
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    message: 'Download URL generated successfully.',
+                    downloadUrl: downloadUrl
+                }),
+            };
+        }
         else if (task.type === "download") {
             const titleForPrefix = task.title || '';
              if (!titleForPrefix) {
                  throw new Error("Missing 'title' for download task.");
             }
             // Construct prefix carefully - ensure trailing slash if listing like a directory
-            const prefix = `source${titleForPrefix}`;
+            const prefix = `urara${titleForPrefix}`;
             console.log(`Processing 'download' task for prefix: ${prefix}`);
 
             // Step 1: Find the PDF file key(s)

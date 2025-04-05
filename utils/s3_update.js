@@ -3,9 +3,15 @@ import {
     S3Client,
     PutObjectCommand,
     ListObjectsV2Command,
-    GetObjectCommand
+    GetObjectCommand,
+    
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+import {
+    EC2Client,
+    StartInstancesCommand
+} from "@aws-sdk/client-ec2";
 
 // --- Correct AWS SDK v3 Client Initialization ---
 const awsRegion = process.env.AWS_REGION || "us-west-2"; // Use env var or default
@@ -13,8 +19,30 @@ const s3Client = new S3Client({
     region: awsRegion
     // Credentials are automatically handled by the Lambda execution role environment
 });
-
+const ec2Client = new EC2Client({ region: awsRegion });
+const INSTANCE_ID = "i-0f58bed7fa248b300";
 // --- Utility Functions Refactored for AWS SDK v3 ---
+
+export const startec2 = async () => {
+    try {
+        console.log('Attempting to start ec2');
+        const ec2Params = {
+            InstanceIds: [INSTANCE_ID],
+        };
+        const ec2Command = new StartInstancesCommand(ec2Params);
+        console.log(`Attempting to start EC2 instance: ${INSTANCE_ID}`);
+        // Start the EC2 instance
+        const data = await ec2Client.send(ec2Command);
+        console.log(`Successfully sent start command for instance: ${INSTANCE_ID}`);
+        console.log("StartInstances Response:", JSON.stringify(data, null, 2));
+
+        
+
+    } catch (error) {
+        console.error('Error Starting ec2:', error); // Log the full error for more detail
+        throw error; // Re-throw to allow caller to handle
+    }
+};
 
 /**
  * Function to update items in an S3 bucket using SDK v3
@@ -30,7 +58,7 @@ export const updateS3Items = async (bucketName, items) => {
                 Bucket: bucketName,
                 Key: item.key,
                 Body: item.body,
-                ContentType: item.contentType // Optional: Add ContentType for better handling (e.g., 'application/pdf', 'text/markdown')
+                ContentType: 'text/markdown'
             };
             console.log(`Creating PutObjectCommand for: ${item.key}`);
             const command = new PutObjectCommand(params);
@@ -130,6 +158,30 @@ export const getPresignedUrlForPdf = async (bucketName, key, expiresIn = 300) =>
 
     } catch (error) {
         console.error(`Error generating presigned URL for ${key}:`, error);
+        throw error;
+    }
+};
+
+export const getMarkdownContent = async (bucketName, key) => {
+    if (!key) {
+        throw new Error("S3 key must be provided to retrieve markdown content.");
+    }
+    try {
+        const params = {
+            Bucket: bucketName,
+            Key: key,
+        };
+        console.log(`Creating GetObjectCommand for markdown content: ${key}`);
+        const command = new GetObjectCommand(params);
+        const data = await s3Client.send(command); // Use v3 client and send
+
+        // Convert the stream to a string
+        const bodyString = await data.Body.transformToString();
+        console.log(`Retrieved markdown content for ${key}`);
+        return bodyString;
+
+    } catch (error) {
+        console.error(`Error retrieving markdown content for ${key}:`, error);
         throw error;
     }
 };
