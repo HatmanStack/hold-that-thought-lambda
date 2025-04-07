@@ -70,8 +70,12 @@ export const handler = async (event, context) => {
             
             const ocrResult = await callGoogleGenAIOCRBatch(task.files)
             const holder = ocrResult.split('|||||');// Assuming this returns { markdown: string, title: string, pdf: Buffer/string }     
-            const markdown = holder[0];
-            const title = holder[1];
+            const lines = holder[0].split('\n');
+            console.log(`OCR Lines: ${holder[0].trim()}`);
+            const middleLines = lines.slice(1, -1);
+            const markdown = middleLines.join('\n');
+            console.log(`OCR processing complete. Generated Markdown: ${markdown}`);
+            const title = holder[1].trim();
             console.log(`OCR processing complete. Generated Title: ${title}`);
             // console.log('Generated Markdown:', markdown); // Avoid logging potentially large markdown
 
