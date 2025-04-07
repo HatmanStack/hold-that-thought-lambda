@@ -1,5 +1,5 @@
 import { updateS3Items, getS3PdfKeys, getPresignedUrlForPdf, getMarkdownContent, startec2 } from './utils/s3_update.js';
-//import { processFilesWithOCR } from './utils/gemini_api.js';
+import { callGoogleGenAIOCRBatch } from './utils/gemini_api.js';
 import fs from 'fs';
 import path from 'path';
 import { Buffer } from 'buffer'; // Explicitly import Buffer if needed
@@ -43,7 +43,7 @@ export const handler = async (event, context) => {
 
         // --- Handle 'update' task ---
         if (task.type === "update") {
-            console.log(`Processing 'update' task for name: ${task.name}`);
+            console.log(`Processing 'update' task for name: ${task.title}`);
             // Validate task content if necessary
             if (!task.title || typeof task.content === 'undefined') {
                  throw new Error("Missing 'name' or 'content' for update task.");
@@ -67,45 +67,23 @@ export const handler = async (event, context) => {
             if (!Array.isArray(task.files) || task.files.length === 0) {
                  throw new Error("Missing or empty 'files' array for create task.");
             }
-
-            const filePaths = [];
-            // Decode base64 content and save files to /tmp
-            for (const file of task.files) {
-                 if (!file.name || !file.content) {
-                     console.warn("Skipping file due to missing name or content:", file);
-                     continue; // Skip invalid file entries
-                 }
-                const filePath = path.join('/tmp', file.name);
-                console.log(`Writing file to /tmp: ${filePath}`);
-                const fileBuffer = Buffer.from(file.content, 'base64');
-                fs.writeFileSync(filePath, fileBuffer);
-                filePaths.push(filePath);
-            }
-
-            if (filePaths.length === 0) {
-                 throw new Error("No valid files found to process for create task.");
-            }
-
-            // Process files with OCR and get the markdown and title
-            console.log("Processing files with OCR:", filePaths);
-            const ocrResult = await processFilesWithOCR(filePaths); // Assuming this returns { markdown: string, title: string, pdf: Buffer/string }
-
-            // Validate OCR result structure
-             if (!ocrResult || typeof ocrResult.markdown === 'undefined' || !ocrResult.title || typeof ocrResult.pdf === 'undefined') {
-                console.error("Invalid structure returned from processFilesWithOCR:", ocrResult);
-                throw new Error("Failed to process files with OCR or invalid result structure.");
-            }
-            const { markdown, title, pdf } = ocrResult;
+            
+            const ocrResult = await callGoogleGenAIOCRBatch(task.files)
+            const holder = ocrResult.split('|||||');// Assuming this returns { markdown: string, title: string, pdf: Buffer/string }     
+            const markdown = holder[0];
+            const title = holder[1];
             console.log(`OCR processing complete. Generated Title: ${title}`);
             // console.log('Generated Markdown:', markdown); // Avoid logging potentially large markdown
 
             // Update the S3 bucket with the markdown content and original PDF
+            
             const itemsToUpload = [
                 { key: `urara/${title}/+page.svelte.md`, body: markdown },
-                { key: `urara/${title}/document.pdf`, body: pdf } // Assuming pdf is Buffer or string
+                { key: `urara/${title}/document.pdf`, body: fs.readFileSync('/tmp/final_merged_document.pdf')} // Assuming pdf is Buffer or string
             ];
 
             await updateS3Items(BUCKET_NAME, itemsToUpload);
+            await startec2();
             console.log("Create task completed successfully.");
              return { // Explicit success response
                 statusCode: 200,
@@ -128,7 +106,7 @@ export const handler = async (event, context) => {
             console.error(`Error during Lambda execution:`, error);
             // Differentiate between EC2 and S3 errors if necessary
             if (error.name && error.message.includes('instance')) { // Basic check
-                 console.error(`Specifically failed starting instance ${INSTANCE_ID}:`, error);
+                 console.error(`Specifically failed starting instance: `, error);
             }
             // Return an error response
             return {
